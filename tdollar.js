@@ -17,19 +17,24 @@
   // Setup the root $ object, accepting a
   // single argument (this isn't jQuery) which we'll try
   // to convert into a $ object if not already done for us
-  var $ = function (ti) {
+  var $ = function (ti, attr) {
     if (ti instanceof $) return ti;
+    return elementMixins(new $.O.$(ti, attr));
+  };
+
+  // Shortcut version of $ without the instanceof and mixins
+  var $$ = function (ti) {
     return new $.O.$(ti);
   };
 
   $.prototype = $.O = {
 
+    context: null,
+
     length: 0,
 
-    $: function (ti) {
+    $: function (ti, attr) {
       
-      this.context = {};
-
       // handle empty sets
       if (!ti) return this;
 
@@ -55,13 +60,13 @@
 
       if (ti._$tid) {
         this.length = 1;
-        this.context = this[0];
+        this.context = this[0] = ti;
         return this;
       }
 
       if (_.isString(ti)) {
         this.length = 1;
-        this.context = this[0] = makeUI(ti);
+        this.context = this[0] = makeUI(ti, attr);
         return this;
       }
     },
@@ -85,22 +90,37 @@
     // Unlike the regular jQuery/Zepto - this .add
     // call just forges a new item with the specified tagName
     // and attributes, and pushes it onto the current element
-    // stack, setting a reference to the parent element
+    // context, setting a reference to the parent element
     add: function(tagName, attributes) {
-      return this.each(function() {
-        var el;
-        if (tagName instanceof $) {
-          el = tagName.context;
-        } else {
-          el = $.make(tagName, attributes);
+      
+      var el;
+      var parent = this.context;
+
+      if (_.isString(tagName)) {
+        el = makeUI(tagName, attributes);
+      } else if (tagName._$tid) {
+        el = tagName;
+      } else if (tagName instanceof $) {
+        el = tagName.context;
+      }
+
+      if (!el._$parent) el._$parent = parent;
+        
+      if (parent._$tagName === 'TabGroup' && el._$tagName === 'Tab') {
+      
+        parent.addTab(el);
+      
+      } else {
+        
+        // Set the _$containingTab reference when adding a Window to a tab
+        if (parent._$tagName === 'Tab' && el._$tagName === 'Window') {
+          el._$containingTab = parent;
         }
-        el._$parent = this.context;
-        if (this._$tagName === 'TabGroup' && (el._$tagName = 'Tab')) {
-          return this.addTab(el);
-        } else {
-          return this.add(el);
-        }
-      });
+        
+        parent.add(el);
+      }
+      
+      return this;
     },
 
     // Remove every item inside the current context,
@@ -108,10 +128,11 @@
     // on them, and then calling remove on the children
     empty: function() {
       return this.each(function () {
-        $(childEls(this)).each(function(el) {
-          $(el).off().empty();
-          removeElement(this.context, el);
-          delete el._$parent;
+        var that = this;
+        $$(childEls(this)).each(function() {
+          $$(this).off().empty();
+          removeElement(that, this);
+          delete this._$parent;
         });
       });
     },
@@ -170,10 +191,10 @@
 
       return this.each(function () {
         if (_.isString(name)) {
-          this['set'+ucFirst(name)](attribute);
+          setAttr(this, name, attribute);
         } else if (_.isObject(name)) {
           for (var key in name) {
-            this['set'+ucFirst(key)](name[key]);
+            setAttr(this, key, name[key]);
           }
         }
       });
@@ -246,10 +267,15 @@
   }
 
   function eachEvent(events, fn, iterator) {
-    if (_.isObject(events)) return fauxEach(events, iterator);
-    return events.split(/\s/).forEach(function(type) {
-      return iterator(type, fn);
-    });
+    if (_.isObject(events)) {
+      _.each(events, function (value, key) {
+        iterator(key, value);
+      });
+    } else {
+      _.each(events.split(/\s/), function(type) {
+        iterator(type, fn);
+      });
+    }
   }
 
   // Adds an event on an element
@@ -257,7 +283,7 @@
     var id = element._$tid;
     var set = handlers[id] || (handlers[id] = []);
     
-    return eachEvent(events, fn, function(event, fn) {
+    eachEvent(events, fn, function(event, fn) {
     
       var delegate = getDelegate && getDelegate(fn, event);
       var callback = delegate || fn;
@@ -274,7 +300,7 @@
       });
       set.push(handler);
       
-      return element.addEventListener(handler.e, proxyfn);
+      element.addEventListener(handler.e, proxyfn);
     });
   }
 
@@ -347,7 +373,14 @@
 
   // Returns the child elements for the current ui element
   function childEls(ui) {
-    return (ui._$tagName === 'TabGroup' ? ui.tabs : ui.children);
+    if (ui._$tagName === 'TabGroup') {
+      children = ui.tabs;
+    } else if (ui._$tagName === 'TableViewSection') {
+      children = ui.rows;
+    } else {
+      children =  ui.children;
+    }
+    return children;
   }
 
   // Makes an Ti.UI element from scratch, parsing
@@ -383,9 +416,11 @@
       // TODO: check here for the TableViewRow
       delete attr.className;
       
-      classAttr = _.extend({}, _.map(attr._$className.split(' '), function(cName) {
-        return _.result(stylesheet, "." + attr._$className);
-      }));
+      classAttr = _.reduce(_.map(attr._$className.split(' '), function(cName) {
+        return _.result(stylesheet, "." + cName);
+      }), function (memo, val) {
+        return _.extend({}, memo, val);
+      });
     }
     
     if (attr.id) {
@@ -394,7 +429,14 @@
       idAttr = _.result(stylesheet, "#" + attr._$id);
     }
     
-    return _.extend({}, tagAttr, classAttr, idAttr, attr);
+    var data = _.extend({}, tagAttr, classAttr, idAttr, attr);
+
+    _.each(data, function (value, key, list) {
+      if (_.isFunction(value)) value = list[key] = value();
+      if (value instanceof $) list[key] = value.el();
+    });
+
+    return data;
   }
 
   // @param $
@@ -515,9 +557,85 @@
     return _.values(resultSet);
   }
 
+  function setAttr(el, key, value) {
+    if (value instanceof $) {
+      value = value.el();
+      value._$parent = el;
+    }
+    el['set'+ucFirst(key)](value);
+  }
+
   function ucFirst(str) {
     str = str == null ? '' : String(str);
     return str.charAt(0).toUpperCase() + str.slice(1);
+  }
+
+  var Mixins = {
+    
+    TabGroup: {
+      
+      hide: function () {
+        this.context.hide();
+        return this;
+      },
+      
+      open: function () {
+        this.context.open();
+        return this;
+      }
+    },
+
+    Tab: {
+      
+      open: function (el, opts) {
+        el = _val(el);
+        el._$containingTab = this.context;
+        this.context.open(el, (opts || {}));
+        return this;
+      }
+
+    },
+
+    Window : {
+      
+      open: function (el, opts) {
+        
+      },
+      
+      close: function () {
+        this.empty();
+        this.context.close();
+      }
+    
+    },
+
+    TableView: {
+      
+      setData: function (data) {
+        var d = this.context.getData();
+        this.context.setData([]);
+        this.context.setData(data);
+        for (var i=0; i<d.length; i++) {
+          if (!d[i]._$tagName) d[i]._$tagName = 'TableViewSection';
+        }
+        $(d).empty();
+        return this;
+      }
+
+    }
+
+  };
+
+  function elementMixins(tdollar) {
+    if (tdollar.context) {
+      var m = Mixins[tdollar.context._$tagName];
+      if (m) _.extend(tdollar, m);
+    }
+    return tdollar;
+  }
+
+  function  _val(el) {
+    return (el instanceof $ ? el.context : el);
   }
 
   _.extend($, {
