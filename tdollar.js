@@ -195,7 +195,7 @@
           setAttr(this, name, attribute);
         } else if (_.isObject(name)) {
           for (var key in name) {
-            setAttr(this, key, name[key]);
+            setAttr(this, key, _val(name[key]));
           }
         }
       });
