@@ -147,9 +147,10 @@
     remove: function () {
       return this.each(function() {
         if (this._$parent) {
-          $(this).empty();
+          $$(this).empty();
           removeElement(this._$parent, this);
-          return delete this._$parent;
+          delete this._$parent;
+          delete this._$containingTab;
         } else {
           return console.log('Cannot remove an item without knowledge of the parent');
         }
@@ -234,6 +235,17 @@
   };
 
   $.O.$.prototype = $.O;
+
+  // Animation
+  // -------
+
+  _.extend($.O, {
+    animate: function (options, callback) {
+      this.context.animate(makeUI('animation', options), callback);
+      return this;
+    }
+  });
+
 
   // Events & Event Binding
   // -------
@@ -387,10 +399,16 @@
   // the id, class, tag attributes from the stylesheet,
   // adding a _$tid property for reference.
   function makeUI(tagName, attr) {
+    attr || (attr = {});
     var el = Ti.UI["create"+tagName](parseAttr(tagName, attr));
       el._$className || (el._$className = '');
       el._$tagName = tagName;
       el._$tid = _.uniqueId('tid');
+    
+    if (tagName === 'Tab' && attr.window && attr.window._$tid) {
+      attr.window._$containingTab = el;
+    }
+
     return el;
   }
 
@@ -467,6 +485,9 @@
   // @param {Ti.UI}
   // @param {Ti.UI}
   function removeElement(parent, child) {
+    
+    if (child._$containingTab) delete child._$containingTab;
+    
     if (parent._$tagName === 'TabGroup' && child._$tagName === 'Tab') {
       parent.removeTab(child);
     } else if (parent._$tagName === 'TabGroup') {
@@ -598,8 +619,15 @@
 
     Window : {
       
-      open: function (el, opts) {
-        
+      open: function (el, opts, callback) {
+        if (!this.context._$containingTab) {
+          console.log('Error: no containing tab');
+          return false;
+        }
+        this.context._$containingTab.open(el, (opts || {}));
+        el._$containingTab = this.context._$containingTab;
+        if (callback) callback();
+        return this;
       },
       
       close: function () {
@@ -612,13 +640,13 @@
     TableView: {
       
       setData: function (data) {
-        var d = this.context.getData();
+        var tmp = this.context.getData();
         this.context.setData([]);
         this.context.setData(data);
-        for (var i=0; i<d.length; i++) {
-          if (!d[i]._$tagName) d[i]._$tagName = 'TableViewSection';
+        for (var i=0, l=tmp.length; i < l; i++) {
+          if (!tmp[i]._$tagName) tmp[i]._$tagName = 'TableViewSection';
         }
-        $(d).empty();
+        $$(tmp).empty();
         return this;
       }
 
