@@ -14,9 +14,9 @@
   var ioc = require('ioc');
   var _ = ioc.resolve('underscore');
 
-  // Setup the root $ object, accepting a
-  // single argument (this isn't jQuery) which we'll try
-  // to convert into a $ object if not already done for us
+  // Setup the root $ object, accepting two arguments, the
+  // element name, and the attributes for that element (this isn't jQuery)
+  // which we'll try to convert into a $ object if not already done for us
   var $ = function (ti, attr) {
     if (ti instanceof $) return ti;
     return elementMixins(new $.O.$(ti, attr));
@@ -64,11 +64,9 @@
         return this;
       }
 
-      if (_.isString(ti)) {
-        this.length = 1;
-        this.context = this[0] = makeUI(ti, attr);
-        return this;
-      }
+      this.length = 1;
+      this.context = this[0] = makeUI(ti, attr);
+      return this;
     },
 
     // Core Helpers
@@ -100,7 +98,8 @@
         el = makeUI(tagName, attributes);
       } else if (tagName._$tid) {
         el = tagName;
-      } else if (tagName instanceof $) {
+      } else {
+        tagName = $(tagName);
         el = tagName.context;
       }
 
@@ -181,6 +180,10 @@
 
     el: function () {
       return this.context;
+    },
+
+    val: function () {
+      return this.context.getValue();
     },
 
     // Get or set attribute on the current stack
@@ -352,7 +355,7 @@
         addEvent(this, event, callback, function(fn, type) {
           return function() {
             var result = fn.apply(element, arguments);
-            remove(element, type, fn);
+            removeEvent(element, type, fn);
             return result;
           };
         });
@@ -399,11 +402,19 @@
   // the id, class, tag attributes from the stylesheet,
   // adding a _$tid property for reference.
   function makeUI(tagName, attr) {
+    var el;
     attr || (attr = {});
-    var el = Ti.UI["create"+tagName](parseAttr(tagName, attr));
-      el._$className || (el._$className = '');
-      el._$tagName = tagName;
-      el._$tid = _.uniqueId('tid');
+
+    if (_.isString(tagName)) {
+      el = Ti.UI["create"+tagName](parseAttr(tagName, attr));
+    } else {
+      el = tagName;
+      tagName = 'View';
+    }
+
+    el._$className || (el._$className = '');
+    el._$tagName = tagName;
+    el._$tid = _.uniqueId('tid');
     
     if (tagName === 'Tab' && attr.window && attr.window._$tid) {
       attr.window._$containingTab = el;
@@ -639,7 +650,7 @@
 
     TableView: {
       
-      setData: function (data) {
+      setData: function (data, nonSection) {
         var tmp = this.context.getData();
         this.context.setData([]);
         this.context.setData(data);
@@ -649,6 +660,8 @@
         $$(tmp).empty();
         return this;
       }
+
+      // TODO: Good way to reference child rows
 
     }
 
