@@ -150,7 +150,7 @@
           removeElement(this._$parent, this);
           delete this._$parent;
           delete this._$containingTab;
-        } else {
+        } else if (this._$tagName !== 'Window') {
           return console.log('Cannot remove an item without knowledge of the parent');
         }
       });
