@@ -94,6 +94,14 @@
       var el;
       var parent = this.context;
 
+      if (_.isArray(tagName)) {
+        var $that = this;
+        $$(tagName).each(function (el) {
+          $that.add(el);
+        });
+        return this;
+      }
+
       if (_.isString(tagName)) {
         el = makeUI(tagName, attributes);
       } else if (tagName._$tid) {
@@ -112,8 +120,11 @@
       
         parent.addTab(el);
       
+      } else if (parent._$tagName === 'PickerColumn') {
+
+        parent.addRow(el);
+      
       } else {
-        
         // Set the _$containingTab reference when adding a Window to a tab
         if (parent._$tagName === 'Tab' && el._$tagName === 'Window') {
           el._$containingTab = parent;
@@ -136,6 +147,16 @@
           removeElement(that, this);
           delete this._$parent;
         });
+
+        // Additional properties that could potentially be set as
+        // Tbone UI elements...
+        var items = ['rightNavButton', 'leftNavButton'];
+        for (var i=0, l=items.length; i<l; i++) {
+          var item = this[items[i]];
+          if (item && _.isObject(item) && item._$tid) {
+            $(item).off().remove();
+          }
+        }
       });
     },
 
@@ -149,7 +170,7 @@
     remove: function () {
       return this.each(function() {
         if (this._$parent) {
-          $$(this).empty();
+          $$(this).off().empty();
           removeElement(this._$parent, this);
           delete this._$parent;
           delete this._$containingTab;
@@ -192,7 +213,7 @@
     // Get or set attribute on the current stack
     attr: function (name, attribute) {
       // Exit early if we're getting an attribute
-      if (_.isString(name) && attribute == null) {
+      if (_.isString(name) && attribute == void 0) {
         return this.context['get'+ucFirst(name)]();
       }
 
@@ -396,7 +417,7 @@
     } else if (ui._$tagName === 'TableViewSection') {
       children = ui.rows;
     } else {
-      children =  ui.children;
+      children = ui.children;
     }
     return children;
   }
@@ -448,6 +469,10 @@
       // TODO: check here for the TableViewRow
       delete attr.className;
       
+      if (attr._$className.charAt(0) === '.') {
+        console.warn("Warning, the className " + attr._$className + "probably shouldn't begin with .");
+      }
+
       classAttr = _.reduce(_.map(attr._$className.split(' '), function(cName) {
         return _.result(stylesheet, "." + cName);
       }), function (memo, val) {
@@ -458,6 +483,9 @@
     if (attr.id) {
       attr._$id = _.result(attr, 'id');
       delete attr.id;
+      if (attr._$id.charAt(0) === '#') {
+        console.warn("Warning, the ID " + attr._$id + "probably shouldn't begin with #");
+      }
       idAttr = _.result(stylesheet, "#" + attr._$id);
     }
     
@@ -593,9 +621,13 @@
   }
 
   function setAttr(el, key, value) {
+    // Ensure any potential bound event listeners for this
+    // item are removed, and it's removed for sure
+    if (this[key] && this[key]._$tid) {
+      $(this.key).off().empty().remove();
+    }
     if (value instanceof $) {
       value = value.el();
-      value._$parent = el;
     }
     el['set'+ucFirst(key)](value);
   }
@@ -634,11 +666,12 @@
     Window : {
       
       open: function (el, opts, callback) {
+        opts || (opts = {});
         if (!this.context._$containingTab) {
           console.log('Error: no containing tab');
           return false;
         }
-        this.context._$containingTab.open(el, (opts || {}));
+        this.context._$containingTab.open(el, opts);
         el._$containingTab = this.context._$containingTab;
         if (callback) callback();
         return this;
@@ -647,6 +680,10 @@
       close: function () {
         this.empty();
         this.context.close();
+      },
+
+      containingTab: function () {
+        return this.context._$containingTab;
       }
     
     },
