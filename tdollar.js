@@ -101,6 +101,9 @@
       } else {
         tagName = $(tagName);
         el = tagName.context;
+        if (!el._$id && el.id) {
+          el._$id = el.id;
+        }
       }
 
       if (!el._$parent) el._$parent = parent;
